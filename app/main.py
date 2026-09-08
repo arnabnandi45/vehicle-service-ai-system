@@ -16,6 +16,11 @@ from app.core.pdf_utils import extract_text_from_pdf
 from app.core.text_utils import chunk_text
 from app.services.embedding import create_embedding
 from app.models.document_chunk import DocumentChunk
+from app.services.search import find_most_similar_chunks
+from app.services.answer_generator import generate_answer
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 def get_db():
     db = SessionLocal()
@@ -33,7 +38,23 @@ app = FastAPI(
     debug=settings.DEBUG
 )
 
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(auth_router)
+
+
+app.mount(
+    "/static",
+    StaticFiles(directory="app/static"),
+    name="static"
+)
 
 
 @app.get("/")
@@ -280,3 +301,65 @@ def test_embedding():
         "embedding_length": len(embedding),
         "first_10_values": embedding[:10]
     }
+@app.get("/search")
+def search_documents(
+    question: str,
+    db: Session = Depends(get_db)
+):
+    # Create embedding for user's question
+    question_embedding = create_embedding(question)
+
+    # Get all document chunks from database
+    document_chunks = db.query(DocumentChunk).all()
+
+    # Find the most similar chunks
+    results = find_most_similar_chunks(
+        question_embedding=question_embedding,
+        document_chunks=document_chunks,
+        top_k=3
+    )
+
+    return {
+        "question": question,
+        "results": results
+    }
+
+@app.get("/chat")
+def chat(
+    question: str,
+    db: Session = Depends(get_db)
+):
+    # Create embedding for user's question
+    question_embedding = create_embedding(question)
+
+    # Get all document chunks from database
+    document_chunks = db.query(DocumentChunk).all()
+
+    # Find the most relevant chunks
+    results = find_most_similar_chunks(
+        question_embedding=question_embedding,
+        document_chunks=document_chunks,
+        top_k=3
+    )
+
+    # Combine relevant chunks into one context
+    context = "\n\n".join(
+        result["text"]
+        for result in results
+    )
+
+    # Generate AI answer using the context
+    answer = generate_answer(
+        question=question,
+        context=context
+    )
+
+    return {
+        "question": question,
+        "answer": answer,
+        "sources": results
+    }
+
+@app.get("/chat-ui")
+def chat_ui():
+    return FileResponse("app/templates/chat.html")

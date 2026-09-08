@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Vehicle Service AI Assistant</title>
+
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+
+<body>
+
+    <div class="container">
+
+        <div class="chat-header">
+            <h1>🚗 Vehicle Service AI Assistant</h1>
+            <p>Ask questions about vehicle maintenance and servicing</p>
+        </div>
+
+
+        <div id="chat-box" class="chat-box">
+
+            <div class="message bot-message">
+                👋 Hello! Ask me anything about your vehicle service.
+            </div>
+
+        </div>
+
+
+                <div class="upload-container">
+
+            <input
+                type="file"
+                id="file-input"
+                accept=".pdf"
+            >
+
+            <button id="upload-button">
+                Upload PDF
+            </button>
+
+        </div>
+
+
+        <div class="input-container">
+
+            <input
+                type="text"
+                id="question-input"
+                placeholder="Ask a vehicle service question..."
+            >
+
+            <button id="send-button">
+                Send
+            </button>
+
+        </div>
+
+    </div>
+
+
+    <script src="/static/chat.js"></script>
+
+</body>
+</html>
