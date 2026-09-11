@@ -4,6 +4,7 @@ from alembic import context
 
 from app.db.database import Base, engine
 from app.models.user import User
+from app.models.customer import Customer
 from app.models.vehicle import Vehicle
 from app.models.document_chunk import DocumentChunk
 from app.models.service_type import ServiceType

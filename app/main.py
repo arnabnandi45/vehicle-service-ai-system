@@ -14,6 +14,8 @@ from app.api.auth import router as auth_router
 from app.core.dependencies import get_current_user
 from app.core.dependencies import require_admin
 import shutil
+import os
+import uuid
 from app.core.pdf_utils import extract_text_from_pdf
 from app.core.text_utils import chunk_text
 from app.services.embedding import create_embedding
@@ -58,9 +60,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-Base.metadata.create_all(bind=engine)
-
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -306,64 +305,112 @@ async def upload_document(
     current_user: User = Depends(require_admin)
 ):
     if file.content_type != "application/pdf":
-        return {
-        "error": "Only PDF files are allowed"
-        }
-
-    # Delete previous document chunks
-    db.query(DocumentChunk).delete()
-    db.commit()
-
-    
-    file_path = f"app/uploads/{file.filename}"
-
-    # Save uploaded file
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    # Extract text from PDF
-    extracted_text = extract_text_from_pdf(file_path)
-
-    if not extracted_text.strip():
-        return {
-            "error": "Could not extract any text from the PDF"
-        }
-
-    # Split extracted text into chunks
-    chunks = chunk_text(extracted_text)
-
-    # Create embeddings and save them
-    chunk_embeddings = []
-
-    for chunk in chunks:
-        embedding = create_embedding(chunk)
-
-        new_chunk = DocumentChunk(
-            filename=file.filename,
-            chunk_text=chunk,
-            embedding=str(embedding)
+        raise HTTPException(
+            status_code=400,
+            detail="Only PDF files are allowed"
         )
 
-        db.add(new_chunk)
+    # Read the uploaded file into memory first.
+    file_content = await file.read()
 
-        chunk_embeddings.append({
-            "text": chunk,
-            "embedding": embedding
-        })
+    if not file_content:
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded PDF is empty"
+        )
 
-    # Save everything to PostgreSQL
-    db.commit()
+    # Use a safe generated filename instead of trusting the original filename.
+    original_filename = os.path.basename(file.filename or "uploaded.pdf")
+    safe_filename = f"{uuid.uuid4().hex}_{original_filename}"
 
-    return {
-        "filename": file.filename,
-        "content_type": file.content_type,
-        "message": "File uploaded, text extracted, embeddings created and saved successfully",
-        "total_chunks": len(chunks),
-        "total_embeddings": len(chunk_embeddings),
-        "embedding_dimension": len(chunk_embeddings[0]["embedding"]) if chunk_embeddings else 0,
-        "data": chunk_embeddings
-    }
+    upload_dir = "app/uploads"
+    os.makedirs(upload_dir, exist_ok=True)
 
+    file_path = os.path.join(upload_dir, safe_filename)
+
+    try:
+        # Save the new PDF.
+        with open(file_path, "wb") as buffer:
+            buffer.write(file_content)
+
+        # Extract text from the new PDF before changing existing knowledge.
+        try:
+            extracted_text = extract_text_from_pdf(file_path)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Could not process the PDF: {str(exc)}"
+            )
+
+        if not extracted_text.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Could not extract any text from the PDF"
+            )
+
+        # Split extracted text into chunks.
+        chunks = chunk_text(extracted_text)
+
+        if not chunks:
+            raise HTTPException(
+                status_code=400,
+                detail="No usable text chunks were created from the PDF"
+            )
+
+        # Create all embeddings before modifying the existing knowledge base.
+        new_chunks = []
+
+        for chunk in chunks:
+            embedding = create_embedding(chunk)
+
+            new_chunks.append(
+                DocumentChunk(
+                    filename=original_filename,
+                    chunk_text=chunk,
+                    embedding=str(embedding)
+                )
+            )
+
+        # Replace the old knowledge base only after the new document
+        # has been successfully processed.
+        db.query(DocumentChunk).delete(synchronize_session=False)
+
+        for new_chunk in new_chunks:
+            db.add(new_chunk)
+
+        db.commit()
+
+        return {
+            "filename": original_filename,
+            "content_type": file.content_type,
+            "message": "File uploaded, text extracted, embeddings created and saved successfully",
+            "total_chunks": len(new_chunks),
+            "total_embeddings": len(new_chunks),
+            "embedding_dimension": len(
+                create_embedding(chunks[0])
+            ) if chunks else 0
+        }
+
+    except HTTPException:
+        db.rollback()
+
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+        raise
+
+    except Exception as exc:
+        db.rollback()
+
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process uploaded document: {str(exc)}"
+        )
+
+    
 @app.get("/test-embedding")
 def test_embedding():
 
@@ -379,7 +426,8 @@ def test_embedding():
 @app.get("/search")
 def search_documents(
     question: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     # Create embedding for user's question
     question_embedding = create_embedding(question)
@@ -400,7 +448,11 @@ def search_documents(
     }
 
 @app.get("/chat")
-def chat(question: str, db: Session = Depends(get_db)):
+def chat(
+    question: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     # Critical safety check
     safety_keywords = [
         "brake failure",
