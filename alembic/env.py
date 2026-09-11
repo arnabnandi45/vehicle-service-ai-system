@@ -6,6 +6,10 @@ from app.db.database import Base, engine
 from app.models.user import User
 from app.models.vehicle import Vehicle
 from app.models.document_chunk import DocumentChunk
+from app.models.service_type import ServiceType
+from app.models.technician import Technician
+from app.models.service_booking import ServiceBooking
+from app.models.job_card import JobCard
 
 
 config = context.config

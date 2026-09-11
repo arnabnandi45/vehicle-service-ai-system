@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+sqlalchemy
+psycopg2-binary
+python-dotenv
+pydantic
+pydantic-settings
+python-jose
+passlib
+python-multipart
+pypdf
+numpy
+sentence-transformers
+transformers
+torch
+alembic
+pytest

@@ -1,0 +1,28 @@
+services:
+  db:
+    image: postgres:16
+    container_name: vehicle_service_db
+    environment:
+      POSTGRES_DB: vehicle_service
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    api:
+    build: .
+    container_name: vehicle_service_api
+    depends_on:
+      - db
+    ports:
+      - "8000:8000"
+    environment:
+      APP_NAME: "Vehicle Service AI Assistant"
+      DEBUG: "True"
+      DATABASE_URL: "postgresql://postgres:postgres@db:5432/vehicle_service"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+volumes:
+  postgres_data:
